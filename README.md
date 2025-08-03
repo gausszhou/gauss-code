@@ -1,6 +1,6 @@
-# gauss-code
+# Gauss Code
 
-A Python project managed with uv.
+Gauss Code is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster by executing routine tasks, explaining complex code
 
 ## Description
 This is a basic Python project template using uv for dependency management.
@@ -44,3 +44,9 @@ gauss-code/
     ├── __init__.py
     └── test_main.py
 ```
+
+## Reference
+
+https://github.com/anthropics/claude-code
+
+https://github.com/QwenLM/qwen-code
