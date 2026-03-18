@@ -1,7 +1,8 @@
 import subprocess
 import json
 import os
-from typing import List, Dict, Any, Optional
+import sys
+from typing import List, Dict, Any, Optional, Generator
 from dataclasses import dataclass, field
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -86,7 +87,7 @@ class SimpleAgent:
         except Exception as e:
             return f"Error executing tool: {str(e)}"
 
-    def generate_response(self, user_input: str) -> str:
+    def generate_response_stream(self, user_input: str) -> Generator[str, None, None]:
         self.add_message("user", user_input)
         
         messages_for_api = [
@@ -98,27 +99,57 @@ class SimpleAgent:
         while iteration < self.max_iterations:
             iteration += 1
             
-            response = self.client.chat.completions.create(
+            stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages_for_api,
                 tools=self.get_openai_tools(),
-                tool_choice="auto"
+                tool_choice="auto",
+                stream=True
             )
             
-            assistant_message = response.choices[0].message
+            full_content = ""
+            tool_calls_buffer = {}
             
-            if assistant_message.tool_calls:
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                
+                if delta.content:
+                    content = delta.content
+                    full_content += content
+                    yield content
+                
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        call_id = tool_call.id
+                        if call_id not in tool_calls_buffer:
+                            tool_calls_buffer[call_id] = {
+                                "id": call_id,
+                                "type": tool_call.type,
+                                "function": {
+                                    "name": tool_call.function.name if tool_call.function.name else "",
+                                    "arguments": tool_call.function.arguments if tool_call.function.arguments else ""
+                                }
+                            }
+                        else:
+                            if tool_call.function.name:
+                                tool_calls_buffer[call_id]["function"]["name"] = tool_call.function.name
+                            if tool_call.function.arguments:
+                                tool_calls_buffer[call_id]["function"]["arguments"] += tool_call.function.arguments
+            
+            if tool_calls_buffer:
+                tool_calls_list = list(tool_calls_buffer.values())
                 tool_results = []
-                for tool_call in assistant_message.tool_calls:
-                    tool_name = tool_call.function.name
+                
+                for tool_call_data in tool_calls_list:
+                    tool_name = tool_call_data["function"]["name"]
                     try:
-                        arguments = json.loads(tool_call.function.arguments)
+                        arguments = json.loads(tool_call_data["function"]["arguments"])
                     except json.JSONDecodeError:
-                        arguments = {"command": tool_call.function.arguments}
+                        arguments = {"command": tool_call_data["function"]["arguments"]}
                     
                     result = self.execute_tool_call(tool_name, arguments)
                     tool_results.append({
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": tool_call_data["id"],
                         "role": "tool",
                         "name": tool_name,
                         "content": result
@@ -128,30 +159,24 @@ class SimpleAgent:
                 
                 messages_for_api.append({
                     "role": "assistant",
-                    "content": assistant_message.content,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": tc.type,
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        }
-                        for tc in assistant_message.tool_calls
-                    ]
+                    "content": full_content,
+                    "tool_calls": tool_calls_list
                 })
                 
                 messages_for_api.extend(tool_results)
                 continue
             
-            if assistant_message.content:
-                self.add_message("assistant", assistant_message.content)
-                return assistant_message.content
+            if full_content:
+                self.add_message("assistant", full_content)
+                return
             
             break
-        
-        return "I apologize, but I couldn't generate a response."
+
+    def generate_response(self, user_input: str) -> str:
+        full_response = ""
+        for chunk in self.generate_response_stream(user_input):
+            full_response += chunk
+        return full_response
 
     def run(self):
         print(f"🤖 {self.name} is ready!")
@@ -170,14 +195,21 @@ class SimpleAgent:
                 if not user_input:
                     continue
                 
-                response = self.generate_response(user_input)
-                print(f"{self.name}: {response}\n")
+                print(f"{self.name}: ", end="", flush=True)
+                
+                full_response = ""
+                for chunk in self.generate_response_stream(user_input):
+                    print(chunk, end="", flush=True)
+                    full_response += chunk
+                
+                print()
+                print()
                 
             except KeyboardInterrupt:
                 print(f"\n{self.name}: Goodbye!")
                 break
             except Exception as e:
-                print(f"{self.name}: Error occurred: {str(e)}\n")
+                print(f"\n{self.name}: Error occurred: {str(e)}\n")
 
 
 def bash_tool(command: str) -> str:
