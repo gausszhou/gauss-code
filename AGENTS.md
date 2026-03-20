@@ -8,8 +8,11 @@
 在项目根目录创建 `.env` 文件，配置以下环境变量：
 
 ```env
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+LLM_API_KEY=your_api_key_here
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
 ```
 
-将 `your_deepseek_api_key_here` 替换为你的 DeepSeek API 密钥。
+- `LLM_API_KEY`: LLM API 密钥（必需）
+- `LLM_BASE_URL`: LLM API 基础 URL（可选，默认为 DeepSeek）
+- `LLM_MODEL`: 使用的模型名称（可选，默认为 deepseek-chat）

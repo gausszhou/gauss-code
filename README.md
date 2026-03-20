@@ -25,8 +25,13 @@ uv sync
 
 ```bash
 cp .env.example .env
-# Edit .env and add your DeepSeek API key
+# Edit .env and add your LLM API key
 ```
+
+Available environment variables:
+- `LLM_API_KEY`: LLM API 密钥（必需）
+- `LLM_BASE_URL`: LLM API 基础 URL（可选，默认为 DeepSeek）
+- `LLM_MODEL`: 使用的模型名称（可选，默认为 deepseek-chat）
 
 ## Usage
 

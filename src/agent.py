@@ -24,18 +24,20 @@ class ToolCall:
 
 
 class SimpleAgent:
-    def __init__(self, name: str = "SimpleAgent", model: str = "deepseek-chat"):
+    def __init__(self, name: str = "SimpleAgent", model: str = None):
         self.name = name
-        self.model = model
+        self.model = os.getenv("LLM_MODEL", "deepseek-chat")
         self.tools: Dict[str, Tool] = {}
         self.max_iterations = 10
         self.session_manager = SessionManager()
+        self._stop_generation = False
         
-        api_key = os.getenv("DEEPSEEK_API_KEY")
-        base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-        
+        api_key = os.getenv("LLM_API_KEY")
+        base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
+        print(f"LLM_MODEL: {self.model}")
+        print(f"LLM_BASE_URL: {base_url}")
         if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY not found in environment variables")
+            raise ValueError("LLM_API_KEY not found in environment variables")
         
         self.client = OpenAI(
             api_key=api_key,
@@ -44,6 +46,12 @@ class SimpleAgent:
 
     def register_tool(self, tool: Tool):
         self.tools[tool.name] = tool
+
+    def stop_generation(self):
+        self._stop_generation = True
+
+    def reset_stop_flag(self):
+        self._stop_generation = False
 
     def add_message(self, role: str, content: str):
         self.session_manager.add_message_to_current_session(role, content)
@@ -92,42 +100,76 @@ class SimpleAgent:
         while iteration < self.max_iterations:
             iteration += 1
             
-            stream = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages_for_api,
-                tools=self.get_openai_tools(),
-                tool_choice="auto",
-                stream=True
-            )
+            if self._stop_generation:
+                yield "\n\n[Generation stopped by user]"
+                self.reset_stop_flag()
+                return
+            
+            try:
+                stream = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages_for_api,
+                    tools=self.get_openai_tools(),
+                    tool_choice="auto",
+                    stream=True
+                )
+            except Exception as e:
+                error_msg = f"Error creating completion: {str(e)}"
+                self.add_message("system", error_msg)
+                yield f"\n[Error: {error_msg}]"
+                return
             
             full_content = ""
             tool_calls_buffer = {}
             
-            for chunk in stream:
-                delta = chunk.choices[0].delta
-                
-                if delta.content:
-                    content = delta.content
-                    full_content += content
-                    yield content
-                
-                if delta.tool_calls:
-                    for tool_call in delta.tool_calls:
-                        call_id = tool_call.id
-                        if call_id not in tool_calls_buffer:
-                            tool_calls_buffer[call_id] = {
-                                "id": call_id,
-                                "type": tool_call.type,
-                                "function": {
-                                    "name": tool_call.function.name if tool_call.function.name else "",
-                                    "arguments": tool_call.function.arguments if tool_call.function.arguments else ""
+            try:
+                for chunk in stream:
+                    if self._stop_generation:
+                        yield "\n\n[Generation stopped by user]"
+                        self.reset_stop_flag()
+                        return
+                    
+                    if not chunk or not chunk.choices:
+                        continue
+                    
+                    delta = chunk.choices[0].delta
+                    if delta is None:
+                        continue
+                    
+                    if delta.content:
+                        content = delta.content
+                        if content:
+                            full_content += content
+                            yield content
+                    
+                    if delta.tool_calls:
+                        for tool_call in delta.tool_calls:
+                            if tool_call is None:
+                                continue
+                            
+                            call_id = tool_call.id
+                            if not call_id:
+                                continue
+                            
+                            if call_id not in tool_calls_buffer:
+                                tool_calls_buffer[call_id] = {
+                                    "id": call_id,
+                                    "type": tool_call.type or "function",
+                                    "function": {
+                                        "name": tool_call.function.name if tool_call.function and tool_call.function.name else "",
+                                        "arguments": tool_call.function.arguments if tool_call.function and tool_call.function.arguments else ""
+                                    }
                                 }
-                            }
-                        else:
-                            if tool_call.function.name:
-                                tool_calls_buffer[call_id]["function"]["name"] = tool_call.function.name
-                            if tool_call.function.arguments:
-                                tool_calls_buffer[call_id]["function"]["arguments"] += tool_call.function.arguments
+                            else:
+                                if tool_call.function and tool_call.function.name:
+                                    tool_calls_buffer[call_id]["function"]["name"] = tool_call.function.name
+                                if tool_call.function and tool_call.function.arguments:
+                                    tool_calls_buffer[call_id]["function"]["arguments"] += tool_call.function.arguments
+            except Exception as e:
+                error_msg = f"Error processing stream: {str(e)}"
+                self.add_message("system", error_msg)
+                yield f"\n[Error: {error_msg}]"
+                return
             
             if tool_calls_buffer:
                 tool_calls_list = list(tool_calls_buffer.values())
@@ -135,6 +177,9 @@ class SimpleAgent:
                 
                 for tool_call_data in tool_calls_list:
                     tool_name = tool_call_data["function"]["name"]
+                    if not tool_name:
+                        continue
+                    
                     try:
                         arguments = json.loads(tool_call_data["function"]["arguments"])
                     except json.JSONDecodeError:

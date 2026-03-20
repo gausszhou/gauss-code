@@ -29,7 +29,7 @@ def bash_tool(command: str) -> str:
 
 def main():
     try:
-        agent = SimpleAgent("GaussAgent", model="deepseek-chat")
+        agent = SimpleAgent("Agent", model="deepseek-chat")
         
         bash_tool_obj = Tool(
             name="bash",
@@ -48,6 +48,7 @@ def main():
         print("  /load <id> - Load a specific session")
         print("  /delete <id> - Delete a session")
         print("  exit       - Quit the program")
+        print("\n💡 Press Ctrl+C to interrupt generation")
         print()
         
         while True:
@@ -75,9 +76,15 @@ def main():
                 print(f"{session_info}{agent.name}: ", end="", flush=True)
                 
                 full_response = ""
-                for chunk in agent.generate_response_stream(user_input):
-                    print(chunk, end="", flush=True)
-                    full_response += chunk
+                try:
+                    for chunk in agent.generate_response_stream(user_input):
+                        print(chunk, end="", flush=True)
+                        full_response += chunk
+                except KeyboardInterrupt:
+                    agent.stop_generation()
+                    print("\n\n[Generation interrupted]")
+                    print()
+                    continue
                 
                 print()
                 print()
