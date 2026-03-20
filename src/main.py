@@ -1,47 +1,12 @@
-import subprocess
-import os
-from agent import SimpleAgent, Tool
-
-
-def bash_tool(command: str) -> str:
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        output = ""
-        if result.stdout:
-            output += result.stdout
-        if result.stderr:
-            output += f"\n[stderr]: {result.stderr}"
-        
-        return output if output else f"Command executed successfully (exit code: {result.returncode})"
-    
-    except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 30 seconds"
-    except Exception as e:
-        return f"Error executing command: {str(e)}"
+from agent import SimpleAgent
 
 
 def main():
     try:
         agent = SimpleAgent("Agent", model="deepseek-chat")
         
-        bash_tool_obj = Tool(
-            name="bash",
-            description="Execute bash commands in shell. Use this to run terminal commands and get their output.",
-            function=bash_tool
-        )
-        
-        agent.register_tool(bash_tool_obj)
-        
         print(f"🤖 {agent.name} is ready!")
         print(f"Model: {agent.model}")
-        print(f"Available tools: {', '.join(agent.tools.keys())}")
         print("\n💡 Commands:")
         print("  /new       - Create a new session")
         print("  /sessions  - List all sessions")

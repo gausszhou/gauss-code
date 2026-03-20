@@ -4,11 +4,11 @@ Gauss Code is an AI-powered coding assistant that lives in your terminal, unders
 
 ## Features
 
-- 🤖 **AI-Powered**: Built with DeepSeek API for intelligent code assistance
+- 🤖 **AI-Powered**: Built with LLM API for intelligent code assistance
 - 💬 **Session Management**: Create, load, and manage multiple conversation sessions
-- 🛠️ **Tool Support**: Execute bash commands and extend with custom tools
 - 📝 **Streaming Output**: Real-time response streaming for better user experience
 - 💾 **Persistent Storage**: Sessions saved to `~/.gauss-code/sessions`
+- ⏸️ **Interrupt Support**: Press Ctrl+C to interrupt generation at any time
 
 ## Installation
 
