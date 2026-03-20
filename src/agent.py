@@ -4,6 +4,7 @@ from typing import Generator, Dict
 from openai import OpenAI
 from dotenv import load_dotenv
 from session import SessionManager
+from stream_buffer import StreamBuffer
 
 load_dotenv()
 
@@ -27,6 +28,7 @@ class SimpleAgent:
         self._last_generation_time: float = 0.0
         self._last_completion_tokens: int = 0
         self._last_first_token_time: float = 0.0
+        self._stream_buffer = StreamBuffer(mode="char")
         
         api_key = os.getenv("LLM_API_KEY")
         base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
@@ -42,9 +44,11 @@ class SimpleAgent:
 
     def stop_generation(self):
         self._stop_generation = True
+        self._stream_buffer.stop()
 
     def reset_stop_flag(self):
         self._stop_generation = False
+        self._stream_buffer.reset()
 
     def add_message(self, role: str, content: str):
         self.session_manager.add_message_to_current_session(role, content)
@@ -104,12 +108,17 @@ class SimpleAgent:
                         
                         full_content += content
                         completion_tokens += estimate_tokens(content)
-                        yield content
+                        
+                        for char in self._stream_buffer.process(content):
+                            yield char
         except Exception as e:
             error_msg = f"Error processing stream: {str(e)}"
             self.add_message("system", error_msg)
             yield f"\n[Error: {error_msg}]"
             return
+        
+        for char in self._stream_buffer.flush():
+            yield char
         
         end_time = time.time()
         self._last_generation_time = end_time - start_time
