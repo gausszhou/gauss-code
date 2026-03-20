@@ -51,6 +51,10 @@ def main():
                     print()
                     continue
                 
+                stats = agent.get_usage_stats()
+                if stats:
+                    print(f"\n\n📊 Tokens: {stats['completion_tokens']} | First Token: {stats['first_token_time']}s | Speed: {stats['tokens_per_second']} tokens/s | Time: {stats['generation_time']}s")
+                
                 print()
                 print()
                 

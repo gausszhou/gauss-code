@@ -1,10 +1,21 @@
 import os
-from typing import Generator
+import time
+from typing import Generator, Dict
 from openai import OpenAI
 from dotenv import load_dotenv
-from session import SessionManager, Message
+from session import SessionManager
 
 load_dotenv()
+
+
+def estimate_tokens(text: str) -> int:
+    tokens = 0
+    for char in text:
+        if '\u4e00' <= char <= '\u9fff':  # 中文字符
+            tokens += 0.6
+        else:  # 其他字符（数字、符号等）
+            tokens += 0.3
+    return int(tokens)
 
 
 class SimpleAgent:
@@ -13,6 +24,9 @@ class SimpleAgent:
         self.model = os.getenv("LLM_MODEL", "deepseek-chat")
         self.session_manager = SessionManager()
         self._stop_generation = False
+        self._last_generation_time: float = 0.0
+        self._last_completion_tokens: int = 0
+        self._last_first_token_time: float = 0.0
         
         api_key = os.getenv("LLM_API_KEY")
         base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
@@ -48,6 +62,11 @@ class SimpleAgent:
             self.reset_stop_flag()
             return
         
+        start_time = time.time()
+        completion_tokens = 0
+        first_token_received = False
+        first_token_time = 0.0
+        
         try:
             stream = self.client.chat.completions.create(
                 model=self.model,
@@ -79,13 +98,23 @@ class SimpleAgent:
                 if delta.content:
                     content = delta.content
                     if content:
+                        if not first_token_received:
+                            first_token_received = True
+                            first_token_time = time.time()
+                        
                         full_content += content
+                        completion_tokens += estimate_tokens(content)
                         yield content
         except Exception as e:
             error_msg = f"Error processing stream: {str(e)}"
             self.add_message("system", error_msg)
             yield f"\n[Error: {error_msg}]"
             return
+        
+        end_time = time.time()
+        self._last_generation_time = end_time - start_time
+        self._last_completion_tokens = completion_tokens
+        self._last_first_token_time = first_token_time - start_time if first_token_received else 0.0
         
         if full_content:
             self.add_message("assistant", full_content)
@@ -95,6 +124,23 @@ class SimpleAgent:
         for chunk in self.generate_response_stream(user_input):
             full_response += chunk
         return full_response
+
+    def get_usage_stats(self) -> Dict[str, any]:
+        if self._last_generation_time == 0:
+            return {}
+        
+        completion_tokens = self._last_completion_tokens
+        first_token_time = self._last_first_token_time
+        actual_generation_time = self._last_generation_time - first_token_time if self._last_generation_time > first_token_time else self._last_generation_time
+        tokens_per_second = completion_tokens / actual_generation_time if actual_generation_time > 0 else 0
+        
+        return {
+            'completion_tokens': completion_tokens,
+            'first_token_time': round(first_token_time, 2),
+            'generation_time': round(self._last_generation_time, 2),
+            'actual_generation_time': round(actual_generation_time, 2),
+            'tokens_per_second': round(tokens_per_second, 2)
+        }
 
     def handle_command(self, user_input: str) -> bool:
         if user_input.startswith("/"):
